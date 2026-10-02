@@ -100,7 +100,7 @@ async function writeArgument(
 	return { text, usage: data.usage ?? null };
 }
 
-function envelope(trace: string, text: string, usage: unknown): AnyBody {
+function envelope(trace: string, usage: unknown): AnyBody {
 	const now = Math.floor(Date.now() / 1000);
 	return {
 		id: `resp_nomic_${now}`,
@@ -131,7 +131,7 @@ function chatResponse(trace: string, argument: string, usage: unknown): Response
 function responsesResponse(trace: string, argument: string, usage: unknown): Response {
 	return new Response(
 		JSON.stringify({
-			...envelope(trace, argument, usage),
+			...envelope(trace, usage),
 			output: [
 				{
 					type: "message",

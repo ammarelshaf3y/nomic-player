@@ -67,7 +67,7 @@ async function writeArgument(
 	proposal: string,
 	choice: string,
 	probabilities: Record<string, number>,
-): Promise<string> {
+): Promise<{ text: string; usage: unknown }> {
 	const probs = Object.entries(probabilities)
 		.map(([k, v]) => `${k}=${v}`)
 		.join(", ");
@@ -82,6 +82,7 @@ async function writeArgument(
 	});
 	if (!res.ok) throw new Error(`Writer model request failed (${res.status})`);
 	const data = (await res.json()) as AnyBody;
+	let text = "";
 	const output = data.output;
 	if (Array.isArray(output)) {
 		for (const item of output) {
@@ -89,27 +90,48 @@ async function writeArgument(
 			if (Array.isArray(content)) {
 				for (const part of content) {
 					if ((part as AnyBody)?.type === "output_text" && typeof (part as AnyBody).text === "string") {
-						return (part as AnyBody).text as string;
+						text += (part as AnyBody).text as string;
 					}
 				}
 			}
 		}
 	}
-	throw new Error("Writer model returned no text");
+	if (!text) throw new Error("Writer model returned no text");
+	return { text, usage: data.usage ?? null };
 }
 
-function chatResponse(trace: string, argument: string): Response {
+function envelope(trace: string, text: string, usage: unknown): AnyBody {
+	const now = Math.floor(Date.now() / 1000);
+	return {
+		id: `resp_nomic_${now}`,
+		object: "response",
+		created: now,
+		model: "nomic-player",
+		status: "completed",
+		trace,
+		usage: usage ?? { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
+	};
+	};
+}
+
+function chatResponse(trace: string, argument: string, usage: unknown): Response {
 	return new Response(
 		JSON.stringify({
-			choices: [{ index: 0, message: { role: "assistant", content: `${trace}\n${argument}` } }],
+			id: `chatcmpl_nomic_${Date.now()}`,
+			object: "chat.completion",
+			created: Math.floor(Date.now() / 1000),
+			model: "nomic-player",
+			choices: [{ index: 0, message: { role: "assistant", content: `${trace}\n${argument}` }, finish_reason: "stop" }],
+			usage: usage ?? { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
 		}),
 		{ status: 200, headers: { "content-type": "application/json" } },
 	);
 }
 
-function responsesResponse(trace: string, argument: string): Response {
+function responsesResponse(trace: string, argument: string, usage: unknown): Response {
 	return new Response(
 		JSON.stringify({
+			...envelope(trace, argument, usage),
 			output: [
 				{
 					type: "message",
@@ -128,8 +150,8 @@ export default async function agent({ request, pollinations }: AgentContext): Pr
 	if (!proposal) throw new Error("Empty proposal text");
 
 	const { choice, probabilities } = await jevVote(pollinations, proposal);
-	const argument = await writeArgument(pollinations, proposal, choice, probabilities);
+	const { text, usage } = await writeArgument(pollinations, proposal, choice, probabilities);
 	const trace = `[nomic-player: jev voted ${choice} ${JSON.stringify(probabilities)}]`;
 
-	return isChat(body) ? chatResponse(trace, argument) : responsesResponse(trace, argument);
+	return isChat(body) ? chatResponse(trace, text, usage) : responsesResponse(trace, text, usage);
 }

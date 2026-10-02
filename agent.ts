@@ -111,7 +111,6 @@ function envelope(trace: string, usage: unknown): AnyBody {
 		trace,
 		usage: usage ?? { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
 	};
-	};
 }
 
 function chatResponse(trace: string, argument: string, usage: unknown): Response {
